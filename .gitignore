@@ -1,0 +1,17 @@
+# Built binary
+/rrun
+
+# Go artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.sum.bak
+
+# OS artifacts
+.DS_Store
+Thumbs.db
