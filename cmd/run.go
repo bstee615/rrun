@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
+
+	"rrun/internal/config"
 	"rrun/internal/runner"
 )
 
@@ -18,19 +20,22 @@ then executes the given command on the remote with live-streamed output.
 Examples:
   rrun run python train.py --epochs 10
   rrun run --remote lambda make test
-  rrun run bash -c 'nvidia-smi && python bench.py'`,
+  rrun run --delete bash -c 'nvidia-smi && python bench.py'`,
 	SilenceUsage: true,
 	RunE:         runRun,
 }
 
 func init() {
-	// Stop flag parsing at the first non-flag argument so that flags intended
-	// for the remote command (e.g. --epochs) are not consumed by rrun.
+	// Stop cobra from consuming flags intended for the remote command.
 	runCmd.Flags().SetInterspersed(false)
 	rootCmd.AddCommand(runCmd)
 }
 
 func runRun(_ *cobra.Command, args []string) error {
+	if err := runner.CheckDeps(); err != nil {
+		return err
+	}
+
 	remote, remoteName, err := resolveRemote()
 	if err != nil {
 		return err
@@ -38,19 +43,42 @@ func runRun(_ *cobra.Command, args []string) error {
 
 	localDir, err := runner.GitRoot()
 	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
+		return err
 	}
 
+	// remoteDir is the remote equivalent of the git root.
+	// remoteWorkDir mirrors the user's current working directory on the remote.
 	remoteDir := runner.RemoteDir(localDir, remote)
+	remoteWorkDir, err := runner.RemoteWorkDir(localDir, remoteDir)
+	if err != nil {
+		return err
+	}
+
 	cmdStr := strings.Join(args, " ")
 
 	log.Info("Syncing", "remote", remoteName, "host", remote.Host, "path", remoteDir)
-	if err := runner.Sync(remote, localDir, remoteDir, flagVerbose); err != nil {
+
+	if err := runner.CheckSSH(remote.Host); err != nil {
+		return err
+	}
+
+	cfg, _ := config.Load()
+	var retryCfg config.RetryConfig
+	var warnMB int
+	if cfg != nil {
+		retryCfg = cfg.Retry
+		warnMB = cfg.LargeTransferWarnMB
+	}
+
+	if err := runner.SyncWithRetry(remote, localDir, remoteDir, syncArgs(), retryCfg, warnMB); err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
 
-	if err := runner.WriteState(remote, localDir, remoteDir, cmdStr); err != nil {
-		log.Warn("Failed to write .rrun", "err", err)
+	noState := flagNoState || (cfg != nil && cfg.NoState)
+	if !noState {
+		if err := runner.WriteState(remote, localDir, remoteDir, cmdStr); err != nil {
+			log.Warn("Failed to write .rrun", "err", err)
+		}
 	}
 
 	if len(args) == 0 {
@@ -59,5 +87,5 @@ func runRun(_ *cobra.Command, args []string) error {
 	}
 
 	log.Info("Running", "cmd", cmdStr)
-	return runner.Run(remote, remoteDir, args)
+	return runner.Run(remote, remoteWorkDir, args)
 }

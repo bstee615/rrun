@@ -1,17 +1,11 @@
-# Built binary
+# built binary
 /rrun
 
-# Go artifacts
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# go build cache
 *.test
 *.out
-vendor/
-go.sum.bak
 
-# OS artifacts
-.DS_Store
-Thumbs.db
+# editor
+.idea/
+.vscode/
+*.swp

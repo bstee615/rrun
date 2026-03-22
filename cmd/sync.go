@@ -5,6 +5,8 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
+
+	"rrun/internal/config"
 	"rrun/internal/runner"
 )
 
@@ -20,6 +22,10 @@ func init() {
 }
 
 func runSync(_ *cobra.Command, _ []string) error {
+	if err := runner.CheckDeps(); err != nil {
+		return err
+	}
+
 	remote, remoteName, err := resolveRemote()
 	if err != nil {
 		return err
@@ -27,18 +33,34 @@ func runSync(_ *cobra.Command, _ []string) error {
 
 	localDir, err := runner.GitRoot()
 	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
+		return err
 	}
 
 	remoteDir := runner.RemoteDir(localDir, remote)
 
 	log.Info("Syncing", "remote", remoteName, "host", remote.Host, "path", remoteDir)
-	if err := runner.Sync(remote, localDir, remoteDir, flagVerbose); err != nil {
+
+	if err := runner.CheckSSH(remote.Host); err != nil {
+		return err
+	}
+
+	cfg, _ := config.Load()
+	var retryCfg config.RetryConfig
+	var warnMB int
+	if cfg != nil {
+		retryCfg = cfg.Retry
+		warnMB = cfg.LargeTransferWarnMB
+	}
+
+	if err := runner.SyncWithRetry(remote, localDir, remoteDir, syncArgs(), retryCfg, warnMB); err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
 
-	if err := runner.WriteState(remote, localDir, remoteDir, ""); err != nil {
-		log.Warn("Failed to write .rrun", "err", err)
+	noState := flagNoState || (cfg != nil && cfg.NoState)
+	if !noState {
+		if err := runner.WriteState(remote, localDir, remoteDir, ""); err != nil {
+			log.Warn("Failed to write .rrun", "err", err)
+		}
 	}
 
 	log.Info("Sync complete")

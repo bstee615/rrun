@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"rrun/internal/config"
+	"rrun/internal/runner"
 )
 
 // resolveRemote returns the Remote to use, preferring the --remote flag,
@@ -24,7 +25,15 @@ func resolveRemote() (config.Remote, string, error) {
 
 	r, ok := cfg.Remotes[name]
 	if !ok {
-		return config.Remote{}, "", fmt.Errorf("remote %q not found in config", name)
+		return config.Remote{}, "", fmt.Errorf("remote %q not found; list remotes with: rrun remote list", name)
 	}
 	return r, name, nil
+}
+
+// syncArgs builds a SyncOptions from the current global flags.
+func syncArgs() runner.SyncOptions {
+	return runner.SyncOptions{
+		Verbose: flagVerbose,
+		Delete:  flagDelete,
+	}
 }

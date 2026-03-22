@@ -3,8 +3,11 @@ module rrun
 go 1.22
 
 require (
+	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/charmbracelet/log v0.4.0
+	github.com/kevinburke/ssh_config v1.2.0
 	github.com/spf13/cobra v1.8.1
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
