@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,9 @@ type SyncOptions struct {
 
 // CheckDeps verifies that the required external binaries are in PATH.
 func CheckDeps() error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("rrun requires rsync and ssh, which are not natively available on Windows — run under WSL2 instead")
+	}
 	for _, bin := range []string{"rsync", "ssh"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			return fmt.Errorf("%s not found in PATH — install it via your package manager", bin)

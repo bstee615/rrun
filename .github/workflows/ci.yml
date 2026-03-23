@@ -11,6 +11,7 @@ jobs:
     name: Go Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
@@ -21,8 +22,84 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+  test-distros:
+    name: Go Tests (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: fedora-latest
+            image: fedora:latest
+            install-deps: dnf install -y git
+          - distro: arch-latest
+            image: archlinux:latest
+            install-deps: pacman -Syu --noconfirm git
+    steps:
+      - name: Install system dependencies
+        run: ${{ matrix.install-deps }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run tests
+        run: go test ./...
+
+  pkg-macos:
+    name: Package Tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build binary
+        run: go build -ldflags "-s -w" -o rrun .
+      - name: Verify binary
+        run: ./rrun --version
+      - name: Package tarball
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+          mkdir -p dist
+          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/arm64/arm64/')
+          tar -czf dist/rrun-${VERSION}-darwin-${ARCH}.tar.gz rrun
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrun-macos
+          path: dist/*.tar.gz
+
+  pkg-windows:
+    name: Package Tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build binary
+        run: go build -ldflags "-s -w" -o rrun.exe .
+      - name: Verify binary
+        run: .\rrun.exe --version
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $version = (git describe --tags --always --dirty 2>$null) ?? "dev"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path rrun.exe -DestinationPath "dist\rrun-$version-windows-amd64.zip"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrun-windows
+          path: dist/*.zip
+
   test-packages:
-    name: Package Tests
+    name: Package Tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

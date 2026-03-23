@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
+	"os"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -79,11 +79,11 @@ type Config struct {
 }
 
 func Path() (string, error) {
-	home, err := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "rrun", "config.yaml"), nil
+	return filepath.Join(configDir, "rrun", "config.yaml"), nil
 }
 
 func Load() (*Config, error) {
