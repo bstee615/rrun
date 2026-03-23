@@ -80,9 +80,9 @@ func RemoteWorkDir(localGitRoot, remoteGitRoot string) (string, error) {
 	return filepath.Join(remoteGitRoot, rel), nil
 }
 
-// parseHostPort splits a host string of the form [user@]host[:port] into
+// ParseHostPort splits a host string of the form [user@]host[:port] into
 // a clean host (without port) and a port number. Port 0 means unspecified.
-func parseHostPort(host string) (cleanHost string, port int) {
+func ParseHostPort(host string) (cleanHost string, port int) {
 	if i := strings.LastIndex(host, ":"); i > 0 {
 		portStr := host[i+1:]
 		if p, err := strconv.Atoi(portStr); err == nil && p > 0 && p < 65536 {
@@ -101,7 +101,7 @@ func sshPortArgs(port int) []string {
 
 // CheckSSH verifies that SSH can reach the remote host.
 func CheckSSH(host string) error {
-	cleanHost, port := parseHostPort(host)
+	cleanHost, port := ParseHostPort(host)
 	args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
 	args = append(args, sshPortArgs(port)...)
 	args = append(args, cleanHost, "true")
@@ -161,7 +161,7 @@ func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) 
 		return fmt.Errorf("git ls-files: %w", err)
 	}
 
-	cleanHost, port := parseHostPort(remote.Host)
+	cleanHost, port := ParseHostPort(remote.Host)
 
 	if err := sshMkdir(cleanHost, port, remoteDir); err != nil {
 		return fmt.Errorf("could not create remote directory %s: %w", remoteDir, err)
@@ -211,13 +211,16 @@ func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) 
 
 // Run executes args on the remote inside remoteDir, with a PTY for live output.
 func Run(remote config.Remote, remoteDir string, args []string) error {
-	cleanHost, port := parseHostPort(remote.Host)
+	cleanHost, port := ParseHostPort(remote.Host)
 
 	escaped := make([]string, len(args))
 	for i, a := range args {
 		escaped[i] = shellescape(a)
 	}
-	remoteCmd := fmt.Sprintf("cd %s && %s", shellescape(remoteDir), strings.Join(escaped, " "))
+	// Wrap in a login shell so ~/.profile and /etc/profile.d/* are sourced,
+	// giving the remote command the same PATH the user sees interactively.
+	remoteCmd := fmt.Sprintf("bash -l -c %s",
+		shellescape(fmt.Sprintf("cd %s && %s", remoteDir, strings.Join(escaped, " "))))
 
 	sshArgs := []string{"-t"}
 	sshArgs = append(sshArgs, sshPortArgs(port)...)
@@ -263,7 +266,7 @@ func WriteState(remote config.Remote, localDir, remoteDir, lastCmd string) error
 		return err
 	}
 
-	cleanHost, port := parseHostPort(remote.Host)
+	cleanHost, port := ParseHostPort(remote.Host)
 	sshArgs := sshPortArgs(port)
 	sshArgs = append(sshArgs, cleanHost,
 		fmt.Sprintf("cat > %s", shellescape(remoteDir+"/.rrun")))
@@ -313,7 +316,7 @@ func dryRunTransferSize(remote config.Remote, localDir, remoteDir string) int64 
 	if err != nil {
 		return 0
 	}
-	cleanHost, port := parseHostPort(remote.Host)
+	cleanHost, port := ParseHostPort(remote.Host)
 	args := []string{"-az", "--dry-run", "--stats", "--files-from=-", "--from0"}
 	if port != 0 {
 		args = append(args, "-e", fmt.Sprintf("ssh -p %d", port))
@@ -426,6 +429,9 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-func shellescape(s string) string {
+// Shellescape wraps s in single quotes, escaping embedded single quotes.
+func Shellescape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+func shellescape(s string) string { return Shellescape(s) }
