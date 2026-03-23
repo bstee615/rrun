@@ -52,7 +52,7 @@ test_arch() {
 
     local tmpdir
     tmpdir=$(mktemp -d)
-    trap "rm -rf '$tmpdir'" RETURN
+    trap "sudo rm -rf '$tmpdir' 2>/dev/null || rm -rf '$tmpdir'" RETURN
 
     # Create a source tarball from the local repo so the test doesn't need a
     # published release. makepkg will extract it into rrun-<pkgver>/.
