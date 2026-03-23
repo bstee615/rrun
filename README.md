@@ -8,34 +8,57 @@ Sync git-tracked files to a remote machine and run commands there with live-stre
 
 Built on `rsync` and `ssh`. Files on the remote are overwritten on sync but never deleted.
 
-## How it works
-
-1. Runs `git ls-files` to get the list of tracked files
-2. Rsyncs those files to the remote (mirroring or remapping the local path)
-3. Writes a `.rrun` metadata file to the remote directory
-4. Optionally SSHes in and runs your command, streaming output live
-
-## Build
-
-```sh
-git clone <this repo>
-cd rrun
-go build -o rrun .
-```
-
 ## Install
 
+**Arch Linux (AUR):**
 ```sh
-go install .
-# or copy the binary wherever you like
-cp rrun ~/bin/rrun
+yay -S rrun
+# or: paru -S rrun
+```
+
+**Debian / Ubuntu:**
+```sh
+curl -LO https://github.com/bstee615/rrun/releases/latest/download/rrun_0.1.0_amd64.deb
+sudo dpkg -i rrun_0.1.0_amd64.deb
+```
+
+**Fedora / RHEL:**
+```sh
+sudo dnf install https://github.com/bstee615/rrun/releases/latest/download/rrun-0.1.0-1.x86_64.rpm
+```
+
+**Binary (any Linux):**
+```sh
+curl -LO https://github.com/bstee615/rrun/releases/latest/download/rrun
+chmod +x rrun && sudo mv rrun /usr/local/bin/
+```
+
+**Go:**
+```sh
+go install github.com/bstee615/rrun@latest
 ```
 
 Requires `rsync` and `ssh` on your local machine, and `rsync` on the remote.
 
+## Quick start
+
+```sh
+# 1. Add a remote (first one becomes the default)
+rrun remote add workstation gpu-box        # SSH alias from ~/.ssh/config
+rrun remote add workstation ubuntu@1.2.3.4 # or direct host
+
+# 2. Sync your repo
+rrun sync
+
+# 3. Run a command on the remote
+rrun run python train.py --epochs 10
+```
+
+Output streams live. The remote directory mirrors your local git root.
+
 ## Setup
 
-Add a named remote once. `<host>` is anything SSH accepts — a bare hostname, an alias from `~/.ssh/config`, or `user@host`.
+`<host>` is anything SSH accepts — a bare hostname, an alias from `~/.ssh/config`, or `user@host[:port]`.
 
 ```sh
 # Mirror the local path exactly on the remote
@@ -46,7 +69,6 @@ rrun remote add workstation gpu-box \
   --local-path /home/you \
   --remote-path /home/gpu-user
 
-# The first remote added becomes the default automatically
 rrun remote list
 rrun remote default workstation
 ```
@@ -80,6 +102,13 @@ rrun remote show <name>
 rrun remote default <name>
 ```
 
+## How it works
+
+1. Runs `git ls-files` to get the list of tracked files
+2. Rsyncs those files to the remote (mirroring or remapping the local path)
+3. Writes a `.rrun` metadata file to the remote directory
+4. Optionally SSHes in and runs your command, streaming output live
+
 ## Self-copy test (localhost)
 
 Start your local SSH daemon and authorize your own key, then add localhost as a remote with a path remap:
@@ -112,13 +141,13 @@ You should see the files appear under `/tmp/rrun-dst/<repo-name>/` and the scrip
 }
 ```
 
-## Tests
+## Build from source
 
 ```sh
-go test ./...
+git clone https://github.com/bstee615/rrun
+cd rrun
+go build -o rrun .
 ```
-
-> No tests yet — contributions welcome.
 
 ## Config file format
 
