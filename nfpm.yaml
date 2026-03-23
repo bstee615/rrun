@@ -13,17 +13,11 @@ overrides:
       - openssh-client
       - rsync
       - git
-    contents:
-      - src: ./LICENSE
-        dst: /usr/share/doc/rrun/copyright
   rpm:
     depends:
       - openssh
       - rsync
       - git
-    contents:
-      - src: ./LICENSE
-        dst: /usr/share/licenses/rrun/LICENSE
 
 contents:
   - src: ./rrun
@@ -34,3 +28,9 @@ contents:
     dst: /usr/share/doc/rrun/README.md
   - src: ./CHANGELOG.md
     dst: /usr/share/doc/rrun/CHANGELOG.md
+  - src: ./LICENSE
+    dst: /usr/share/doc/rrun/copyright
+    packager: deb
+  - src: ./LICENSE
+    dst: /usr/share/licenses/rrun/LICENSE
+    packager: rpm
