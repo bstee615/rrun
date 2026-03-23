@@ -2,6 +2,8 @@
         test test-packages check-version \
         release release-aur release-ppa release-copr
 
+export PATH := $(PATH):$(HOME)/go/bin
+
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  := -s -w -X github.com/bstee615/rrun/cmd.version=$(VERSION)
 BINARY   := $(PWD)/rrun
