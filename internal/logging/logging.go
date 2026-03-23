@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -39,8 +40,23 @@ func Init(logPath string) error {
 	return nil
 }
 
-// DefaultPath returns the default log file path.
+// DefaultPath returns the default log file path for the current platform.
+//
+// Priority:
+//   - macOS:   ~/Library/Logs/rrun/rrun.log
+//   - Windows: %LOCALAPPDATA%/rrun/rrun.log
+//   - Linux:   $XDG_DATA_HOME/rrun/rrun.log  (default: ~/.local/share/rrun/rrun.log)
 func DefaultPath() string {
+	switch runtime.GOOS {
+	case "darwin":
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, "Library", "Logs", "rrun", "rrun.log")
+		}
+	case "windows":
+		if appData := os.Getenv("LOCALAPPDATA"); appData != "" {
+			return filepath.Join(appData, "rrun", "rrun.log")
+		}
+	}
 	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
 		return filepath.Join(xdg, "rrun", "rrun.log")
 	}

@@ -1,4 +1,5 @@
 .PHONY: build dev install install-deb install-rpm clean deb rpm packages \
+        pkg-macos pkg-windows \
         test test-packages check-version \
         release release-aur release-ppa release-copr
 
@@ -30,6 +31,22 @@ rpm: build
 	VERSION=$(VERSION) nfpm package --packager rpm --target dist/
 
 packages: deb rpm
+
+# macOS: cross-compiled tarballs for amd64 and arm64 (Apple Silicon).
+pkg-macos:
+	mkdir -p dist
+	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/rrun-darwin-amd64 .
+	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/rrun-darwin-arm64 .
+	tar -czf dist/rrun-$(VERSION)-darwin-amd64.tar.gz -C dist rrun-darwin-amd64
+	tar -czf dist/rrun-$(VERSION)-darwin-arm64.tar.gz -C dist rrun-darwin-arm64
+	rm dist/rrun-darwin-amd64 dist/rrun-darwin-arm64
+
+# Windows: cross-compiled zip for amd64.
+pkg-windows:
+	mkdir -p dist
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/rrun-windows-amd64.exe .
+	cd dist && zip rrun-$(VERSION)-windows-amd64.zip rrun-windows-amd64.exe
+	rm dist/rrun-windows-amd64.exe
 
 install-deb: deb
 	sudo dpkg -i dist/rrun_$(VERSION)_amd64.deb
