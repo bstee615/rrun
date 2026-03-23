@@ -102,6 +102,21 @@ rrun remote show <name>
 rrun remote default <name>
 ```
 
+## AI agent skills
+
+Teach your AI coding agents how to use rrun:
+
+```sh
+rrun agent install          # global skills for Claude Code & Copilot CLI
+rrun agent install --repo   # also add per-repo instructions for VS Code Copilot
+rrun agent status           # see what's installed
+rrun agent uninstall        # remove skills
+```
+
+This installs slash commands (`/rrun-run`, `/rrun-sync`) and contextual instructions
+so that Claude Code, GitHub Copilot CLI, and VS Code Copilot can sync and run
+commands on your remote machines on your behalf.
+
 ## How it works
 
 1. Runs `git ls-files` to get the list of tracked files

@@ -68,6 +68,7 @@ rrun/
     run.go                   `rrun run` subcommand
     sync.go                  `rrun sync` subcommand
     remote.go                `rrun remote *` subcommands
+    agent.go                 `rrun agent *` subcommands (skill installation)
     helpers.go               shared resolveRemote(), syncArgs()
   internal/
     config/config.go         Config struct, Load/Save, Duration type
