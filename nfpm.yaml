@@ -1,0 +1,25 @@
+name: rrun
+arch: amd64
+platform: linux
+version: ${VERSION}
+maintainer: bstee615 <benjaminjsteenhoek@gmail.com>
+description: Sync git-tracked files to a remote machine and run commands there
+homepage: https://github.com/bstee615/rrun
+license: MIT
+
+depends:
+  - openssh
+  - rsync
+  - git
+
+contents:
+  - src: ./rrun
+    dst: /usr/bin/rrun
+    file_info:
+      mode: 0755
+  - src: ./README.md
+    dst: /usr/share/doc/rrun/README.md
+  - src: ./CHANGELOG.md
+    dst: /usr/share/doc/rrun/CHANGELOG.md
+  - src: ./LICENSE
+    dst: /usr/share/licenses/rrun/LICENSE
