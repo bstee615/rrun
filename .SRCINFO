@@ -1,0 +1,16 @@
+pkgbase = rrun
+	pkgdesc = Sync git-tracked files to a remote machine and run commands there
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/bstee615/rrun
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = go>=1.22
+	depends = openssh
+	depends = rsync
+	depends = git
+	source = rrun-0.1.0.tar.gz::https://github.com/bstee615/rrun/archive/v0.1.0.tar.gz
+	sha256sums = a9d28b40341b50e1e287e2fa9437ed4408be40e9076c18f3a066f7523ac7958c
+
+pkgname = rrun

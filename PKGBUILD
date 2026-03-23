@@ -7,7 +7,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/bstee615/rrun"
 license=('MIT')
 depends=('openssh' 'rsync' 'git')
-makedepends=('go')
+makedepends=('go>=1.22')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/bstee615/rrun/archive/v$pkgver.tar.gz")
 sha256sums=('a9d28b40341b50e1e287e2fa9437ed4408be40e9076c18f3a066f7523ac7958c')
 
@@ -18,9 +18,13 @@ prepare() {
 
 build() {
     cd "$pkgname-$pkgver"
+    export CGO_ENABLED=0
     go build \
         -trimpath \
         -buildvcs=false \
+        -buildmode=pie \
+        -mod=readonly \
+        -modcacherw \
         -ldflags "-s -w -X rrun/cmd.version=$pkgver" \
         -o "$pkgname" .
 }
