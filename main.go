@@ -1,6 +1,6 @@
 package main
 
-import "rrun/cmd"
+import "github.com/bstee615/rrun/cmd"
 
 func main() {
 	cmd.Execute()

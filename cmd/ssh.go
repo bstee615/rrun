@@ -5,9 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
-	"rrun/internal/runner"
+
+	"github.com/bstee615/rrun/internal/runner"
 )
 
 var sshCmd = &cobra.Command{
@@ -55,4 +57,3 @@ func runSSH(_ *cobra.Command, _ []string) error {
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
-

@@ -6,8 +6,8 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 
-	"rrun/internal/config"
-	"rrun/internal/runner"
+	"github.com/bstee615/rrun/internal/config"
+	"github.com/bstee615/rrun/internal/runner"
 )
 
 var syncCmd = &cobra.Command{

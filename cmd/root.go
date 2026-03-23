@@ -6,8 +6,8 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 
-	"rrun/internal/config"
-	"rrun/internal/logging"
+	"github.com/bstee615/rrun/internal/config"
+	"github.com/bstee615/rrun/internal/logging"
 )
 
 // version is injected at build time via -ldflags "-X rrun/cmd.version=x.y.z"

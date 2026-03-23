@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"rrun/internal/config"
-	"rrun/internal/runner"
+	"github.com/bstee615/rrun/internal/config"
+	"github.com/bstee615/rrun/internal/runner"
 )
 
 // resolveRemote returns the Remote to use, preferring the --remote flag,

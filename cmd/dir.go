@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"rrun/internal/runner"
+	"github.com/bstee615/rrun/internal/runner"
 )
 
 var dirCmd = &cobra.Command{

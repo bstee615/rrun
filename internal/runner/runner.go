@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,8 +16,8 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/charmbracelet/log"
 
-	"rrun/internal/config"
-	"rrun/internal/logging"
+	"github.com/bstee615/rrun/internal/config"
+	"github.com/bstee615/rrun/internal/logging"
 )
 
 // State is written as .rrun in the synced directory root on the remote.
@@ -39,7 +38,7 @@ type SyncOptions struct {
 func CheckDeps() error {
 	for _, bin := range []string{"rsync", "ssh"} {
 		if _, err := exec.LookPath(bin); err != nil {
-			return fmt.Errorf("%s not found in PATH — install it first (e.g. sudo pacman -S %s)", bin, bin)
+			return fmt.Errorf("%s not found in PATH — install it via your package manager", bin)
 		}
 	}
 	return nil
@@ -113,7 +112,7 @@ func CheckSSH(host string) error {
 	if err := cmd.Run(); err != nil {
 		stderr := stderrBuf.String()
 		if hint := sshHint(stderr, host); hint != "" {
-			return fmt.Errorf("%s", hint)
+			return errors.New(hint)
 		}
 		return fmt.Errorf("cannot connect to %s: %s", host, strings.TrimSpace(stderr))
 	}
@@ -307,33 +306,6 @@ func warnLargeTransfer(localDir string, warnMB int) {
 			"total_size", formatBytes(total),
 			"tip", "add large files to .gitignore and pre-stage them on the remote with rsync directly")
 	}
-}
-
-// dryRunTransferSize queries rsync --dry-run to estimate the delta transfer size.
-// Returns 0 on any failure (non-fatal).
-func dryRunTransferSize(remote config.Remote, localDir, remoteDir string) int64 {
-	tracked, err := exec.Command("git", "-C", localDir, "ls-files", "-z").Output()
-	if err != nil {
-		return 0
-	}
-	cleanHost, port := ParseHostPort(remote.Host)
-	args := []string{"-az", "--dry-run", "--stats", "--files-from=-", "--from0"}
-	if port != 0 {
-		args = append(args, "-e", fmt.Sprintf("ssh -p %d", port))
-	}
-	args = append(args, localDir+"/", cleanHost+":"+remoteDir+"/")
-
-	cmd := exec.Command("rsync", args...)
-	cmd.Stdin = strings.NewReader(string(tracked))
-	out, _ := cmd.Output()
-
-	re := regexp.MustCompile(`Total transferred file size:\s+([\d,]+)`)
-	if m := re.FindSubmatch(out); m != nil {
-		sizeStr := strings.ReplaceAll(string(m[1]), ",", "")
-		size, _ := strconv.ParseInt(sizeStr, 10, 64)
-		return size
-	}
-	return 0
 }
 
 func sshMkdir(host string, port int, dir string) error {

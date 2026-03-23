@@ -1,4 +1,4 @@
-module rrun
+module github.com/bstee615/rrun
 
 go 1.22
 
