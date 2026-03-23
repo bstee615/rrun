@@ -7,20 +7,89 @@ on:
     branches: [master]
 
 jobs:
-  test:
-    name: Go Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+  test-linux:
+    name: Build & Test (Linux)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: Run tests
         run: go test ./...
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+      - name: Build and test packages
+        run: make test-packages
+
+  test-macos:
+    name: Build & Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run tests
+        run: go test ./...
+      - name: Build binary
+        run: go build -ldflags "-s -w" -o rrun .
+      - name: Package tarball
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+          ARCH=$(uname -m | sed 's/x86_64/amd64/')
+          mkdir -p dist
+          tar -czf dist/rrun-${VERSION}-darwin-${ARCH}.tar.gz rrun
+      - name: Smoketest installed package
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+          ARCH=$(uname -m | sed 's/x86_64/amd64/')
+          INSTALL_DIR=$(mktemp -d)
+          tar -xzf dist/rrun-${VERSION}-darwin-${ARCH}.tar.gz -C "$INSTALL_DIR"
+          "$INSTALL_DIR/rrun" --version
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrun-macos
+          path: dist/*.tar.gz
+
+  test-windows:
+    name: Build & Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run tests
+        run: go test ./...
+      - name: Build binary
+        run: go build -ldflags "-s -w" -o rrun.exe .
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $version = (git describe --tags --always --dirty 2>$null) ?? "dev"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path rrun.exe -DestinationPath "dist\rrun-$version-windows-amd64.zip"
+      - name: Smoketest installed package
+        shell: pwsh
+        run: |
+          $version = (git describe --tags --always --dirty 2>$null) ?? "dev"
+          $installDir = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+          New-Item -ItemType Directory -Path $installDir | Out-Null
+          Expand-Archive -Path "dist\rrun-$version-windows-amd64.zip" -DestinationPath $installDir
+          & "$installDir\rrun.exe" --version
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrun-windows
+          path: dist/*.zip
 
   test-distros:
     name: Go Tests (${{ matrix.distro }})
@@ -45,70 +114,3 @@ jobs:
           go-version-file: go.mod
       - name: Run tests
         run: go test ./...
-
-  pkg-macos:
-    name: Package Tests (macOS)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Build binary
-        run: go build -ldflags "-s -w" -o rrun .
-      - name: Verify binary
-        run: ./rrun --version
-      - name: Package tarball
-        run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
-          mkdir -p dist
-          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/arm64/arm64/')
-          tar -czf dist/rrun-${VERSION}-darwin-${ARCH}.tar.gz rrun
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rrun-macos
-          path: dist/*.tar.gz
-
-  pkg-windows:
-    name: Package Tests (Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Build binary
-        run: go build -ldflags "-s -w" -o rrun.exe .
-      - name: Verify binary
-        run: .\rrun.exe --version
-      - name: Package zip
-        shell: pwsh
-        run: |
-          $version = (git describe --tags --always --dirty 2>$null) ?? "dev"
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path rrun.exe -DestinationPath "dist\rrun-$version-windows-amd64.zip"
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rrun-windows
-          path: dist/*.zip
-
-  test-packages:
-    name: Package Tests (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Install nfpm
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-      - name: Build and test packages
-        run: make test-packages
