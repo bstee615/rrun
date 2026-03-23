@@ -40,9 +40,11 @@ func runSync(_ *cobra.Command, _ []string) error {
 
 	log.Info("Syncing", "remote", remoteName, "host", remote.Host, "path", remoteDir)
 
-	if err := runner.CheckSSH(remote.Host); err != nil {
+	conn, err := runner.Dial(remote)
+	if err != nil {
 		return err
 	}
+	defer conn.Close()
 
 	cfg, _ := config.Load()
 	var retryCfg config.RetryConfig
@@ -52,13 +54,13 @@ func runSync(_ *cobra.Command, _ []string) error {
 		warnMB = cfg.LargeTransferWarnMB
 	}
 
-	if err := runner.SyncWithRetry(remote, localDir, remoteDir, syncArgs(), retryCfg, warnMB); err != nil {
+	if err := conn.Sync(localDir, remoteDir, syncArgs(), retryCfg, warnMB); err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
 
 	noState := flagNoState || (cfg != nil && cfg.NoState)
 	if !noState {
-		if err := runner.WriteState(remote, localDir, remoteDir, ""); err != nil {
+		if err := conn.WriteState(localDir, remoteDir, ""); err != nil {
 			log.Warn("Failed to write .rrun", "err", err)
 		}
 	}
