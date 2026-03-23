@@ -1,6 +1,9 @@
 # built binary
 /rrun
 
+# release packages
+/dist/
+
 # go build cache
 *.test
 *.out
