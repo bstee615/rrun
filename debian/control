@@ -1,0 +1,16 @@
+Source: rrun
+Section: utils
+Priority: optional
+Maintainer: bstee615 <benjaminjsteenhoek@gmail.com>
+Build-Depends: debhelper-compat (= 13), golang-go (>= 1.22)
+Standards-Version: 4.6.2
+Homepage: https://github.com/bstee615/rrun
+Rules-Requires-Root: no
+
+Package: rrun
+Architecture: amd64 arm64
+Depends: ${misc:Depends}, openssh-client, rsync, git
+Description: Sync git-tracked files to a remote machine and run commands there
+ rrun syncs files tracked by git to a remote machine and runs commands
+ there with live-streamed output. Zero project buy-in — works with any
+ git repo, no config files added to your projects.

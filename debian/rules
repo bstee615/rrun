@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+export CGO_ENABLED = 0
+export GOFLAGS = -trimpath -mod=vendor
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	go build \
+	    -buildvcs=false \
+	    -ldflags "-s -w -X github.com/bstee615/rrun/cmd.version=$(shell dpkg-parsechangelog --show-field Version | cut -d- -f1)" \
+	    -o rrun .
+
+override_dh_auto_install:
+	install -Dm755 rrun        $(CURDIR)/debian/rrun/usr/bin/rrun
+	install -Dm644 README.md   $(CURDIR)/debian/rrun/usr/share/doc/rrun/README.md
+	install -Dm644 CHANGELOG.md $(CURDIR)/debian/rrun/usr/share/doc/rrun/CHANGELOG.md
+
+override_dh_auto_test:
+	# Network required for go test; runs in CI instead.
+
+override_dh_installchangelogs:
+	dh_installchangelogs CHANGELOG.md
