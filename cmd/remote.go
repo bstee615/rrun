@@ -18,6 +18,10 @@ var (
 var remoteCmd = &cobra.Command{
 	Use:   "remote",
 	Short: "Manage remote machines",
+	Long: `Manage remote machines.
+
+By default all operations read and write the project config (.rrun.yaml in the
+git root). Pass --global to operate on the global config (~/.config/rrun/config.yaml).`,
 }
 
 var remoteAddCmd = &cobra.Command{
@@ -109,6 +113,8 @@ Omit both flags to clear the path map (revert to mirroring local path).`,
 }
 
 func init() {
+	remoteCmd.PersistentFlags().BoolVar(&flagGlobal, "global", false, "operate on the global config (~/.config/rrun/config.yaml) instead of the project config (.rrun.yaml)")
+
 	remoteAddCmd.Flags().StringVar(&flagLocalPath, "local-path", "", "local path prefix for path mapping")
 	remoteAddCmd.Flags().StringVar(&flagRemotePath, "remote-path", "", "remote path prefix for path mapping")
 	remoteSetPathCmd.Flags().StringVar(&flagLocalPath, "local-path", "", "local path prefix")
@@ -131,7 +137,7 @@ func init() {
 func remoteAdd(_ *cobra.Command, args []string) error {
 	name, host := args[0], args[1]
 
-	cfg, err := config.Load()
+	remotes, defaultRemote, save, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
@@ -141,16 +147,16 @@ func remoteAdd(_ *cobra.Command, args []string) error {
 		r.PathMap = config.PathMap{Local: flagLocalPath, Remote: flagRemotePath}
 	}
 
-	cfg.Remotes[name] = r
-	if cfg.DefaultRemote == "" {
-		cfg.DefaultRemote = name
+	remotes[name] = r
+	if *defaultRemote == "" {
+		*defaultRemote = name
 	}
 
-	if err := config.Save(cfg); err != nil {
+	if err := save(); err != nil {
 		return err
 	}
 	log.Info("Remote added", "name", name, "host", host)
-	if cfg.DefaultRemote == name {
+	if *defaultRemote == name {
 		log.Info("Set as default remote", "name", name)
 	}
 	return nil
@@ -158,21 +164,22 @@ func remoteAdd(_ *cobra.Command, args []string) error {
 
 func remoteRemove(_ *cobra.Command, args []string) error {
 	name := args[0]
-	cfg, err := config.Load()
+
+	remotes, defaultRemote, save, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	if _, ok := cfg.Remotes[name]; !ok {
+	if _, ok := remotes[name]; !ok {
 		return fmt.Errorf("remote %q not found", name)
 	}
 
-	delete(cfg.Remotes, name)
-	if cfg.DefaultRemote == name {
-		cfg.DefaultRemote = ""
+	delete(remotes, name)
+	if *defaultRemote == name {
+		*defaultRemote = ""
 		log.Warn("Removed the default remote; set a new one with: rrun remote default <name>")
 	}
 
-	if err := config.Save(cfg); err != nil {
+	if err := save(); err != nil {
 		return err
 	}
 	log.Info("Remote removed", "name", name)
@@ -180,17 +187,17 @@ func remoteRemove(_ *cobra.Command, args []string) error {
 }
 
 func remoteList(_ *cobra.Command, _ []string) error {
-	cfg, err := config.Load()
+	remotes, defaultRemote, _, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	if len(cfg.Remotes) == 0 {
+	if len(remotes) == 0 {
 		fmt.Println("No remotes configured. Add one with: rrun remote add <name> <host>")
 		return nil
 	}
-	for name, r := range cfg.Remotes {
+	for name, r := range remotes {
 		marker := ""
-		if name == cfg.DefaultRemote {
+		if name == *defaultRemote {
 			marker = " (default)"
 		}
 		fmt.Printf("  %-20s %s%s\n", name, r.Host, marker)
@@ -200,11 +207,12 @@ func remoteList(_ *cobra.Command, _ []string) error {
 
 func remoteShow(_ *cobra.Command, args []string) error {
 	name := args[0]
-	cfg, err := config.Load()
+
+	remotes, defaultRemote, _, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	r, ok := cfg.Remotes[name]
+	r, ok := remotes[name]
 	if !ok {
 		return fmt.Errorf("remote %q not found", name)
 	}
@@ -231,7 +239,7 @@ func remoteShow(_ *cobra.Command, args []string) error {
 	} else {
 		fmt.Printf("pathmap:   (mirror local path)\n")
 	}
-	if name == cfg.DefaultRemote {
+	if name == *defaultRemote {
 		fmt.Printf("default:   yes\n")
 	}
 	return nil
@@ -239,15 +247,16 @@ func remoteShow(_ *cobra.Command, args []string) error {
 
 func remoteDefault(_ *cobra.Command, args []string) error {
 	name := args[0]
-	cfg, err := config.Load()
+
+	remotes, defaultRemote, save, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	if _, ok := cfg.Remotes[name]; !ok {
+	if _, ok := remotes[name]; !ok {
 		return fmt.Errorf("remote %q not found", name)
 	}
-	cfg.DefaultRemote = name
-	if err := config.Save(cfg); err != nil {
+	*defaultRemote = name
+	if err := save(); err != nil {
 		return err
 	}
 	log.Info("Default remote set", "name", name)
@@ -256,17 +265,18 @@ func remoteDefault(_ *cobra.Command, args []string) error {
 
 func remoteSetURL(_ *cobra.Command, args []string) error {
 	name, host := args[0], args[1]
-	cfg, err := config.Load()
+
+	remotes, _, save, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	r, ok := cfg.Remotes[name]
+	r, ok := remotes[name]
 	if !ok {
 		return fmt.Errorf("remote %q not found", name)
 	}
 	r.Host = host
-	cfg.Remotes[name] = r
-	if err := config.Save(cfg); err != nil {
+	remotes[name] = r
+	if err := save(); err != nil {
 		return err
 	}
 	log.Info("Remote URL updated", "name", name, "host", host)
@@ -275,11 +285,12 @@ func remoteSetURL(_ *cobra.Command, args []string) error {
 
 func remoteGetURL(_ *cobra.Command, args []string) error {
 	name := args[0]
-	cfg, err := config.Load()
+
+	remotes, _, _, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	r, ok := cfg.Remotes[name]
+	r, ok := remotes[name]
 	if !ok {
 		return fmt.Errorf("remote %q not found", name)
 	}
@@ -289,25 +300,26 @@ func remoteGetURL(_ *cobra.Command, args []string) error {
 
 func remoteRename(_ *cobra.Command, args []string) error {
 	oldName, newName := args[0], args[1]
-	cfg, err := config.Load()
+
+	remotes, defaultRemote, save, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	r, ok := cfg.Remotes[oldName]
+	r, ok := remotes[oldName]
 	if !ok {
 		return fmt.Errorf("remote %q not found", oldName)
 	}
-	if _, exists := cfg.Remotes[newName]; exists {
+	if _, exists := remotes[newName]; exists {
 		return fmt.Errorf("remote %q already exists", newName)
 	}
 
-	delete(cfg.Remotes, oldName)
-	cfg.Remotes[newName] = r
-	if cfg.DefaultRemote == oldName {
-		cfg.DefaultRemote = newName
+	delete(remotes, oldName)
+	remotes[newName] = r
+	if *defaultRemote == oldName {
+		*defaultRemote = newName
 	}
 
-	if err := config.Save(cfg); err != nil {
+	if err := save(); err != nil {
 		return err
 	}
 	log.Info("Remote renamed", "from", oldName, "to", newName)
@@ -316,18 +328,19 @@ func remoteRename(_ *cobra.Command, args []string) error {
 
 func remoteSetPath(_ *cobra.Command, args []string) error {
 	name := args[0]
-	cfg, err := config.Load()
+
+	remotes, _, save, err := loadRemoteConfig()
 	if err != nil {
 		return err
 	}
-	r, ok := cfg.Remotes[name]
+	r, ok := remotes[name]
 	if !ok {
 		return fmt.Errorf("remote %q not found", name)
 	}
 
 	r.PathMap = config.PathMap{Local: flagLocalPath, Remote: flagRemotePath}
-	cfg.Remotes[name] = r
-	if err := config.Save(cfg); err != nil {
+	remotes[name] = r
+	if err := save(); err != nil {
 		return err
 	}
 
