@@ -11,6 +11,8 @@ import (
 	"github.com/bstee615/rrun/internal/runner"
 )
 
+var flagNoSync bool
+
 var runCmd = &cobra.Command{
 	Use:   "run [flags] [command...]",
 	Short: "Sync files to the remote then run a command there",
@@ -20,7 +22,8 @@ then executes the given command on the remote with live-streamed output.
 Examples:
   rrun run python train.py --epochs 10
   rrun run --remote lambda make test
-  rrun run --delete bash -c 'nvidia-smi && python bench.py'`,
+  rrun run --delete bash -c 'nvidia-smi && python bench.py'
+  rrun run --no-sync python eval.py   # skip sync, just run`,
 	SilenceUsage: true,
 	RunE:         runRun,
 }
@@ -28,6 +31,7 @@ Examples:
 func init() {
 	// Stop cobra from consuming flags intended for the remote command.
 	runCmd.Flags().SetInterspersed(false)
+	runCmd.Flags().BoolVar(&flagNoSync, "no-sync", false, "skip syncing files before running the command")
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -56,22 +60,25 @@ func runRun(_ *cobra.Command, args []string) error {
 
 	cmdStr := strings.Join(args, " ")
 
-	log.Info("Syncing", "remote", remoteName, "host", remote.Host, "path", remoteDir)
-
 	if err := runner.CheckSSH(remote.Host); err != nil {
 		return err
 	}
 
 	cfg, _ := config.Load()
-	var retryCfg config.RetryConfig
-	var warnMB int
-	if cfg != nil {
-		retryCfg = cfg.Retry
-		warnMB = cfg.LargeTransferWarnMB
-	}
 
-	if err := runner.SyncWithRetry(remote, localDir, remoteDir, syncArgs(), retryCfg, warnMB); err != nil {
-		return fmt.Errorf("sync failed: %w", err)
+	if !flagNoSync {
+		log.Info("Syncing", "remote", remoteName, "host", remote.Host, "path", remoteDir)
+
+		var retryCfg config.RetryConfig
+		var warnMB int
+		if cfg != nil {
+			retryCfg = cfg.Retry
+			warnMB = cfg.LargeTransferWarnMB
+		}
+
+		if err := runner.SyncWithRetry(remote, localDir, remoteDir, syncArgs(), retryCfg, warnMB); err != nil {
+			return fmt.Errorf("sync failed: %w", err)
+		}
 	}
 
 	noState := flagNoState || (cfg != nil && cfg.NoState)
