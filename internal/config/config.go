@@ -78,6 +78,46 @@ type Config struct {
 	Retry               RetryConfig       `yaml:"retry,omitempty"`
 }
 
+// ProjectConfig is the project-level config (.rrun.yaml at the git root).
+// It overrides the global config for the fields it sets.
+type ProjectConfig struct {
+	DefaultRemote string            `yaml:"default_remote,omitempty"`
+	Remotes       map[string]Remote `yaml:"remotes,omitempty"`
+}
+
+// LoadProject reads .rrun.yaml from gitRoot. Returns nil (no error) if the
+// file does not exist.
+func LoadProject(gitRoot string) (*ProjectConfig, error) {
+	path := filepath.Join(gitRoot, ".rrun.yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	return &cfg, nil
+}
+
+// ProjectPath returns the path to the project-level config file.
+func ProjectPath(gitRoot string) string {
+	return filepath.Join(gitRoot, ".rrun.yaml")
+}
+
+// SaveProject writes cfg to .rrun.yaml in gitRoot.
+func SaveProject(gitRoot string, cfg *ProjectConfig) error {
+	path := ProjectPath(gitRoot)
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
 func Path() (string, error) {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
