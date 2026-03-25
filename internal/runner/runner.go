@@ -35,6 +35,105 @@ type SyncOptions struct {
 	Delete  bool // pass --delete to rsync (removes files on remote not in git)
 }
 
+// Conn holds a persistent SSH connection to a remote host. All rrun operations
+// share this connection via SSH ControlMaster, so the user is prompted for a
+// password (if no key is configured) exactly once per rrun invocation.
+type Conn struct {
+	remote      config.Remote
+	cleanHost   string
+	port        int
+	controlPath string // empty when ControlMaster is not in use
+	tempDir     string
+}
+
+// Dial connects to remote, establishing an SSH ControlMaster. If public-key
+// auth is not available the user is prompted for a password here — once —
+// and all subsequent operations reuse the same underlying TCP connection.
+func Dial(remote config.Remote) (*Conn, error) {
+	cleanHost, port := ParseHostPort(remote.Host)
+	c := &Conn{remote: remote, cleanHost: cleanHost, port: port}
+
+	dir, err := os.MkdirTemp("", "rrun-*")
+	if err != nil {
+		// Can't get a temp dir; fall back to per-connection auth.
+		return c, nil
+	}
+	c.tempDir = dir
+	// Short socket name — some systems have tight Unix socket path limits.
+	c.controlPath = filepath.Join(dir, "s")
+
+	args := []string{
+		"-o", "ControlMaster=yes",
+		"-o", "ControlPath=" + c.controlPath,
+		"-o", "ControlPersist=yes", // master stays alive after we exit
+		"-o", "ConnectTimeout=10",
+		"-N", // no remote command; exit once the master is ready
+	}
+	args = append(args, sshPortArgs(port)...)
+	args = append(args, cleanHost)
+
+	var stderrBuf bytes.Buffer
+	cmd := exec.Command("ssh", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	if err := cmd.Run(); err != nil {
+		stderr := stderrBuf.String()
+		c.removeTemp()
+		if hint := sshHint(stderr, remote.Host); hint != "" {
+			return nil, errors.New(hint)
+		}
+		return nil, fmt.Errorf("cannot connect to %s", remote.Host)
+	}
+	return c, nil
+}
+
+// Close shuts down the ControlMaster and removes the temp socket directory.
+func (c *Conn) Close() {
+	if c.controlPath != "" {
+		exec.Command("ssh", "-O", "exit", // tell the master to exit
+			"-o", "ControlPath="+c.controlPath,
+			c.cleanHost).Run()
+	}
+	c.removeTemp()
+}
+
+func (c *Conn) removeTemp() {
+	if c.tempDir != "" {
+		os.RemoveAll(c.tempDir)
+		c.tempDir = ""
+		c.controlPath = ""
+	}
+}
+
+// sshArgs returns the extra flags that route an ssh command through the
+// control socket. Empty when no ControlMaster is in use.
+func (c *Conn) sshArgs() []string {
+	if c.controlPath == "" {
+		return nil
+	}
+	return []string{
+		"-o", "ControlPath=" + c.controlPath,
+		"-o", "ControlMaster=no",
+	}
+}
+
+// rsyncSSHCmd builds the -e argument for rsync so its internal ssh call uses
+// the control socket (and the correct port, if non-default).
+func (c *Conn) rsyncSSHCmd() string {
+	parts := []string{"ssh"}
+	if c.port != 0 {
+		parts = append(parts, "-p", strconv.Itoa(c.port))
+	}
+	if c.controlPath != "" {
+		parts = append(parts,
+			"-o", "ControlPath="+c.controlPath,
+			"-o", "ControlMaster=no")
+	}
+	return strings.Join(parts, " ")
+}
+
 // CheckDeps verifies that the required external binaries are in PATH.
 func CheckDeps() error {
 	if runtime.GOOS == "windows" {
@@ -69,8 +168,6 @@ func RemoteDir(localDir string, r config.Remote) string {
 }
 
 // RemoteWorkDir returns the remote equivalent of the current working directory.
-// It computes the relative path from localGitRoot to cwd, then appends it to
-// the remote git root. This mirrors the user's position within the repo on the remote.
 func RemoteWorkDir(localGitRoot, remoteGitRoot string) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -102,29 +199,8 @@ func sshPortArgs(port int) []string {
 	return []string{"-p", strconv.Itoa(port)}
 }
 
-// CheckSSH verifies that SSH can reach the remote host.
-func CheckSSH(host string) error {
-	cleanHost, port := ParseHostPort(host)
-	args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
-	args = append(args, sshPortArgs(port)...)
-	args = append(args, cleanHost, "true")
-
-	var stderrBuf bytes.Buffer
-	cmd := exec.Command("ssh", args...)
-	cmd.Stderr = &stderrBuf
-
-	if err := cmd.Run(); err != nil {
-		stderr := stderrBuf.String()
-		if hint := sshHint(stderr, host); hint != "" {
-			return errors.New(hint)
-		}
-		return fmt.Errorf("cannot connect to %s: %s", host, strings.TrimSpace(stderr))
-	}
-	return nil
-}
-
-// SyncWithRetry syncs files with exponential backoff on transient errors.
-func SyncWithRetry(remote config.Remote, localDir, remoteDir string, opts SyncOptions, retryCfg config.RetryConfig, warnMB int) error {
+// Sync syncs files to the remote with exponential backoff on transient errors.
+func (c *Conn) Sync(localDir, remoteDir string, opts SyncOptions, retryCfg config.RetryConfig, warnMB int) error {
 	rc := retryCfg.WithDefaults()
 
 	warnLargeTransfer(localDir, warnMB)
@@ -141,7 +217,7 @@ func SyncWithRetry(remote config.Remote, localDir, remoteDir string, opts SyncOp
 		if attempt > 1 {
 			log.Info("Retrying sync", "attempt", attempt, "of", rc.MaxAttempts)
 		}
-		err := doSync(remote, localDir, remoteDir, opts)
+		err := c.doSync(localDir, remoteDir, opts)
 		if err == nil {
 			return nil
 		}
@@ -158,15 +234,13 @@ func SyncWithRetry(remote config.Remote, localDir, remoteDir string, opts SyncOp
 }
 
 // doSync is the inner sync operation (no retry).
-func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) error {
+func (c *Conn) doSync(localDir, remoteDir string, opts SyncOptions) error {
 	tracked, err := exec.Command("git", "-C", localDir, "ls-files", "-z").Output()
 	if err != nil {
 		return fmt.Errorf("git ls-files: %w", err)
 	}
 
-	cleanHost, port := ParseHostPort(remote.Host)
-
-	if err := sshMkdir(cleanHost, port, remoteDir); err != nil {
+	if err := c.mkdir(remoteDir); err != nil {
 		return fmt.Errorf("could not create remote directory %s: %w", remoteDir, err)
 	}
 
@@ -177,10 +251,9 @@ func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) 
 	if opts.Verbose {
 		args = append(args, "-v")
 	}
-	if port != 0 {
-		args = append(args, "-e", fmt.Sprintf("ssh -p %d", port))
-	}
-	args = append(args, localDir+"/", cleanHost+":"+remoteDir+"/")
+	// Always pass -e so we can inject the control socket (and port if needed).
+	args = append(args, "-e", c.rsyncSSHCmd())
+	args = append(args, localDir+"/", c.cleanHost+":"+remoteDir+"/")
 
 	var stderrBuf bytes.Buffer
 	cmd := exec.Command("rsync", args...)
@@ -188,7 +261,6 @@ func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
-	// Warn if the sync is taking unexpectedly long.
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -207,27 +279,24 @@ func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) 
 		if logging.File != nil {
 			logging.File.Error("rsync failed", "exit_code", code, "stderr", stderr)
 		}
-		return rsyncError(code, stderr, remote.Host)
+		return rsyncError(code, stderr, c.remote.Host)
 	}
 	return nil
 }
 
 // Run executes args on the remote inside remoteDir, with a PTY for live output.
-func Run(remote config.Remote, remoteDir string, args []string) error {
-	cleanHost, port := ParseHostPort(remote.Host)
-
+func (c *Conn) Run(remoteDir string, args []string) error {
 	escaped := make([]string, len(args))
 	for i, a := range args {
 		escaped[i] = shellescape(a)
 	}
-	// Wrap in a login shell so ~/.profile and /etc/profile.d/* are sourced,
-	// giving the remote command the same PATH the user sees interactively.
 	remoteCmd := fmt.Sprintf("bash -l -c %s",
 		shellescape(fmt.Sprintf("cd %s && %s", remoteDir, strings.Join(escaped, " "))))
 
-	sshArgs := []string{"-t"}
-	sshArgs = append(sshArgs, sshPortArgs(port)...)
-	sshArgs = append(sshArgs, cleanHost, remoteCmd)
+	sshArgs := c.sshArgs()
+	sshArgs = append(sshArgs, "-t")
+	sshArgs = append(sshArgs, sshPortArgs(c.port)...)
+	sshArgs = append(sshArgs, c.cleanHost, remoteCmd)
 
 	var stderrBuf bytes.Buffer
 	cmd := exec.Command("ssh", sshArgs...)
@@ -239,14 +308,10 @@ func Run(remote config.Remote, remoteDir string, args []string) error {
 		code := exitCode(err)
 		stderr := stderrBuf.String()
 		if logging.File != nil {
-			logging.File.Error("remote command failed",
-				"exit_code", code,
-				"cmd", strings.Join(args, " "))
+			logging.File.Error("remote command failed", "exit_code", code, "cmd", strings.Join(args, " "))
 		}
-		// Exit code 1 from the remote process just means the command failed —
-		// don't add SSH noise on top of whatever the remote already printed.
 		if code == 255 {
-			if hint := sshHint(stderr, remote.Host); hint != "" {
+			if hint := sshHint(stderr, c.remote.Host); hint != "" {
 				return fmt.Errorf("SSH error: %s", hint)
 			}
 		}
@@ -256,7 +321,7 @@ func Run(remote config.Remote, remoteDir string, args []string) error {
 }
 
 // WriteState writes a .rrun metadata file to remoteDir on the remote.
-func WriteState(remote config.Remote, localDir, remoteDir, lastCmd string) error {
+func (c *Conn) WriteState(localDir, remoteDir, lastCmd string) error {
 	hostname, _ := os.Hostname()
 	state := State{
 		SourceMachine: hostname,
@@ -269,9 +334,9 @@ func WriteState(remote config.Remote, localDir, remoteDir, lastCmd string) error
 		return err
 	}
 
-	cleanHost, port := ParseHostPort(remote.Host)
-	sshArgs := sshPortArgs(port)
-	sshArgs = append(sshArgs, cleanHost,
+	sshArgs := c.sshArgs()
+	sshArgs = append(sshArgs, sshPortArgs(c.port)...)
+	sshArgs = append(sshArgs, c.cleanHost,
 		fmt.Sprintf("cat > %s", shellescape(remoteDir+"/.rrun")))
 
 	cmd := exec.Command("ssh", sshArgs...)
@@ -280,15 +345,24 @@ func WriteState(remote config.Remote, localDir, remoteDir, lastCmd string) error
 	return cmd.Run()
 }
 
+// mkdir creates dir on the remote, creating parent directories as needed.
+func (c *Conn) mkdir(dir string) error {
+	args := c.sshArgs()
+	args = append(args, sshPortArgs(c.port)...)
+	args = append(args, c.cleanHost, "mkdir -p "+shellescape(dir))
+	cmd := exec.Command("ssh", args...)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // warnLargeTransfer checks local git-tracked file sizes and warns if large.
-// This is local-only (no SSH overhead). warnMB: 0=default(100MB), -1=disabled.
 func warnLargeTransfer(localDir string, warnMB int) {
 	if warnMB < 0 {
 		return
 	}
 	threshold := int64(warnMB) * 1024 * 1024
 	if threshold == 0 {
-		threshold = 100 * 1024 * 1024 // default 100 MB
+		threshold = 100 * 1024 * 1024
 	}
 
 	out, err := exec.Command("git", "-C", localDir, "ls-files").Output()
@@ -310,14 +384,6 @@ func warnLargeTransfer(localDir string, warnMB int) {
 			"total_size", formatBytes(total),
 			"tip", "add large files to .gitignore and pre-stage them on the remote with rsync directly")
 	}
-}
-
-func sshMkdir(host string, port int, dir string) error {
-	args := sshPortArgs(port)
-	args = append(args, host, "mkdir -p "+shellescape(dir))
-	cmd := exec.Command("ssh", args...)
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
 
 // isTransient returns true if the error looks like a recoverable network issue.
@@ -370,8 +436,6 @@ func sshHint(stderr, host string) string {
 	switch {
 	case strings.Contains(stderr, "Connection refused"):
 		return fmt.Sprintf("connection refused — is sshd running on %s? (sudo systemctl start sshd)", host)
-	case strings.Contains(stderr, "Permission denied (publickey"):
-		return fmt.Sprintf("SSH key rejected — copy your key with: ssh-copy-id %s", host)
 	case strings.Contains(stderr, "Host key verification failed"):
 		return fmt.Sprintf("host key mismatch — if the host was reinstalled, run: ssh-keygen -R %s", host)
 	case strings.Contains(stderr, "No route to host"):
