@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -20,6 +21,10 @@ import (
 	"github.com/bstee615/rrun/internal/config"
 	"github.com/bstee615/rrun/internal/logging"
 )
+
+var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+const unsetEnvValue = "_unset_"
 
 // State is written as .rrun in the synced directory root on the remote.
 type State struct {
@@ -212,18 +217,55 @@ func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) 
 	return nil
 }
 
+// ValidateEnv verifies that each value is a shell environment assignment.
+func ValidateEnv(env []string) error {
+	for _, assignment := range env {
+		name, _, ok := strings.Cut(assignment, "=")
+		if !ok {
+			return fmt.Errorf("invalid environment assignment %q: expected NAME=VALUE", assignment)
+		}
+		if !envNamePattern.MatchString(name) {
+			return fmt.Errorf("invalid environment variable name %q", name)
+		}
+	}
+	return nil
+}
+
+func remoteCommand(remoteDir string, args, env []string) (string, error) {
+	if err := ValidateEnv(env); err != nil {
+		return "", err
+	}
+
+	commands := make([]string, 0, len(env)+2)
+	commands = append(commands, "cd "+shellescape(remoteDir))
+	for _, assignment := range env {
+		name, value, _ := strings.Cut(assignment, "=")
+		if value == unsetEnvValue {
+			commands = append(commands, "unset "+shellescape(name))
+		} else {
+			commands = append(commands, "export "+shellescape(assignment))
+		}
+	}
+
+	command := make([]string, len(args))
+	for i, arg := range args {
+		command[i] = shellescape(arg)
+	}
+	commands = append(commands, strings.Join(command, " "))
+
+	// Use a login shell so the command gets the user's interactive PATH.
+	return fmt.Sprintf("bash -l -c %s",
+		shellescape(strings.Join(commands, " && "))), nil
+}
+
 // Run executes args on the remote inside remoteDir, with a PTY for live output.
-func Run(remote config.Remote, remoteDir string, args []string) error {
+func Run(remote config.Remote, remoteDir string, args, env []string) error {
 	cleanHost, port := ParseHostPort(remote.Host)
 
-	escaped := make([]string, len(args))
-	for i, a := range args {
-		escaped[i] = shellescape(a)
+	remoteCmd, err := remoteCommand(remoteDir, args, env)
+	if err != nil {
+		return err
 	}
-	// Wrap in a login shell so ~/.profile and /etc/profile.d/* are sourced,
-	// giving the remote command the same PATH the user sees interactively.
-	remoteCmd := fmt.Sprintf("bash -l -c %s",
-		shellescape(fmt.Sprintf("cd %s && %s", remoteDir, strings.Join(escaped, " "))))
 
 	sshArgs := []string{"-t"}
 	sshArgs = append(sshArgs, sshPortArgs(port)...)
