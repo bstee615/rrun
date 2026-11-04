@@ -19,6 +19,8 @@ jobs:
           go-version-file: go.mod
       - name: Run tests
         run: go test ./...
+      - name: Run integration tests
+        run: make test-integration
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
       - name: Build and test packages

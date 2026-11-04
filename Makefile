@@ -1,6 +1,6 @@
 .PHONY: build dev install install-deb install-rpm clean deb rpm packages \
         pkg-macos pkg-windows \
-        test test-packages check-version \
+        test test-integration test-packages check-version \
         release release-aur release-ppa release-copr
 
 export PATH := $(PATH):$(HOME)/go/bin
@@ -21,6 +21,9 @@ dev: build
 
 test:
 	go test ./...
+
+test-integration:
+	bash ./scripts/test-integration.sh
 
 deb: build
 	mkdir -p dist

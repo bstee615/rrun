@@ -87,6 +87,12 @@ rrun run python train.py --epochs 10
 # Target a specific remote
 rrun run --remote workstation make test
 
+# Set environment variables for the remote command (repeat --env as needed)
+rrun run --env CUDA_VISIBLE_DEVICES=0 --env MODE=train python train.py
+
+# Unset an inherited remote environment variable
+rrun run --env HTTP_PROXY=_unset_ python train.py
+
 # Flags before the command; everything after the first positional arg
 # is passed through to the remote shell as-is
 rrun run --remote workstation bash -c 'nvidia-smi && python bench.py'

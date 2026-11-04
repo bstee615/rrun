@@ -43,6 +43,7 @@ rrun run --remote workstation pytest tests/
 | Flag | Effect |
 |---|---|
 | `--remote <name>` | Use a specific remote instead of the default |
+| `--env <name>=<value>` | Set an environment variable for the remote command; use `_unset_` as the value to unset it (repeatable) |
 | `--delete` | Remove remote files no longer tracked by git (clean sync) |
 | `--quiet` | Suppress info/warn messages |
 | `--verbose` | Show each file rsync transfers |

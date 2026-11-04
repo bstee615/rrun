@@ -4,6 +4,7 @@
 
 - Go 1.22+
 - `rsync`, `ssh` (runtime deps, needed for tests)
+- Docker (needed for the SSH/rsync integration test)
 - [`nfpm`](https://nfpm.goreleaser.com/) — for building .deb/.rpm packages
 - [`gh`](https://cli.github.com/) — for publishing GitHub releases
 
@@ -30,6 +31,7 @@ make build
 | `make build` | Compile the binary to `./rrun` |
 | `make dev` | Build and symlink `/usr/local/bin/rrun → ./rrun` |
 | `make test` | Run `go test ./...` |
+| `make test-integration` | Run an end-to-end sync and remote command against an SSH-enabled Docker container |
 | `make deb` | Build a `.deb` package into `dist/` |
 | `make rpm` | Build a `.rpm` package into `dist/` |
 | `make packages` | Build both `.deb` and `.rpm` |
