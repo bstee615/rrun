@@ -30,6 +30,7 @@ make build
 | `make build` | Compile the binary to `./rrun` |
 | `make dev` | Build and symlink `/usr/local/bin/rrun → ./rrun` |
 | `make test` | Run `go test ./...` |
+| `make test-integration-env` | Run the real SSH/rsync `--env` test in Docker |
 | `make deb` | Build a `.deb` package into `dist/` |
 | `make rpm` | Build a `.rpm` package into `dist/` |
 | `make packages` | Build both `.deb` and `.rpm` |
@@ -38,6 +39,10 @@ make build
 | `make install-rpm` | Install the `.rpm` with `rpm` |
 | `make release` | Clean → test → packages → publish GitHub release |
 | `make clean` | Remove the binary and `dist/` |
+
+The integration test requires Docker. It builds an isolated Linux client/server
+pair, runs `rrun` across a real SSH connection, and removes its containers,
+network, and image when finished.
 
 ## Packaging
 

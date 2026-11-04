@@ -19,19 +19,28 @@ then executes the given command on the remote with live-streamed output.
 
 Examples:
   rrun run python train.py --epochs 10
+  rrun run --env CUDA_VISIBLE_DEVICES=0 python train.py
+  rrun run --env HTTP_PROXY=_unset_ curl https://example.com
   rrun run --remote lambda make test
   rrun run --delete bash -c 'nvidia-smi && python bench.py'`,
 	SilenceUsage: true,
 	RunE:         runRun,
 }
 
+var flagRunEnv []string
+
 func init() {
 	// Stop cobra from consuming flags intended for the remote command.
 	runCmd.Flags().SetInterspersed(false)
+	runCmd.Flags().StringArrayVar(&flagRunEnv, "env", nil, "environment assignment; use <name>=_unset_ to remove a variable (repeatable)")
 	rootCmd.AddCommand(runCmd)
 }
 
 func runRun(_ *cobra.Command, args []string) error {
+	if err := runner.ValidateEnvAssignments(flagRunEnv); err != nil {
+		return err
+	}
+
 	if err := runner.CheckDeps(); err != nil {
 		return err
 	}
@@ -87,5 +96,5 @@ func runRun(_ *cobra.Command, args []string) error {
 	}
 
 	log.Info("Running", "cmd", cmdStr)
-	return runner.Run(remote, remoteWorkDir, args)
+	return runner.RunWithEnv(remote, remoteWorkDir, args, flagRunEnv)
 }
