@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -212,19 +213,33 @@ func doSync(remote config.Remote, localDir, remoteDir string, opts SyncOptions) 
 	return nil
 }
 
+var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// ValidateEnvAssignments checks that assignments use valid shell environment names.
+func ValidateEnvAssignments(assignments []string) error {
+	for _, assignment := range assignments {
+		name, _, ok := strings.Cut(assignment, "=")
+		if !ok || !envNamePattern.MatchString(name) {
+			return fmt.Errorf("invalid environment assignment %q: expected <name>=<value>", assignment)
+		}
+	}
+	return nil
+}
+
 // Run executes args on the remote inside remoteDir, with a PTY for live output.
 func Run(remote config.Remote, remoteDir string, args []string) error {
+	return RunWithEnv(remote, remoteDir, args, nil)
+}
+
+// RunWithEnv executes args on the remote with the provided environment assignments.
+func RunWithEnv(remote config.Remote, remoteDir string, args, env []string) error {
+	if err := ValidateEnvAssignments(env); err != nil {
+		return err
+	}
+
 	cleanHost, port := ParseHostPort(remote.Host)
 
-	escaped := make([]string, len(args))
-	for i, a := range args {
-		escaped[i] = shellescape(a)
-	}
-	// Wrap in a login shell so ~/.profile and /etc/profile.d/* are sourced,
-	// giving the remote command the same PATH the user sees interactively.
-	remoteCmd := fmt.Sprintf("bash -l -c %s",
-		shellescape(fmt.Sprintf("cd %s && %s", remoteDir, strings.Join(escaped, " "))))
-
+	remoteCmd := buildRemoteCommand(remoteDir, args, env)
 	sshArgs := []string{"-t"}
 	sshArgs = append(sshArgs, sshPortArgs(port)...)
 	sshArgs = append(sshArgs, cleanHost, remoteCmd)
@@ -253,6 +268,54 @@ func Run(remote config.Remote, remoteDir string, args []string) error {
 		return fmt.Errorf("remote command exited with code %d", code)
 	}
 	return nil
+}
+
+func buildRemoteCommand(remoteDir string, args, env []string) string {
+	escaped := make([]string, len(args))
+	for i, a := range args {
+		escaped[i] = shellescape(a)
+	}
+
+	command := make([]string, 0, len(env)*2+len(escaped))
+	if len(env) > 0 {
+		command = append(command, "env")
+		sets, unsets := effectiveEnvAssignments(env)
+		for _, name := range unsets {
+			command = append(command, "-u", shellescape(name))
+		}
+		for _, assignment := range sets {
+			command = append(command, shellescape(assignment))
+		}
+	}
+	command = append(command, escaped...)
+
+	// Wrap in a login shell so ~/.profile and /etc/profile.d/* are sourced,
+	// giving the remote command the same PATH the user sees interactively.
+	return fmt.Sprintf("bash -l -c %s",
+		shellescape(fmt.Sprintf("cd %s && %s", shellescape(remoteDir), strings.Join(command, " "))))
+}
+
+func effectiveEnvAssignments(assignments []string) (sets, unsets []string) {
+	seen := make(map[string]struct{}, len(assignments))
+	final := make([]string, 0, len(assignments))
+	for i := len(assignments) - 1; i >= 0; i-- {
+		name, _, _ := strings.Cut(assignments[i], "=")
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		final = append(final, assignments[i])
+	}
+
+	for i := len(final) - 1; i >= 0; i-- {
+		name, value, _ := strings.Cut(final[i], "=")
+		if value == "_unset_" {
+			unsets = append(unsets, name)
+		} else {
+			sets = append(sets, final[i])
+		}
+	}
+	return sets, unsets
 }
 
 // WriteState writes a .rrun metadata file to remoteDir on the remote.
